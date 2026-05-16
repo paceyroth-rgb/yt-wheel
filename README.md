@@ -66,6 +66,7 @@ Do not commit `backend/headers_auth.json`. It contains private YouTube Music aut
 On Render, deploy the backend as a Python Web Service:
 
 ```txt
+Root Directory: leave blank
 Build Command: pip install -r requirements.txt
 Start Command: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
 ```
