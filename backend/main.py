@@ -1,7 +1,8 @@
 import os
+from functools import lru_cache
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from ytmusicapi import YTMusic
 
@@ -24,7 +25,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-yt = YTMusic(os.getenv("YTMUSIC_AUTH_FILE", str(DEFAULT_AUTH_FILE)))
+@lru_cache
+def get_ytmusic():
+    auth_file = Path(os.getenv("YTMUSIC_AUTH_FILE", str(DEFAULT_AUTH_FILE)))
+
+    if not auth_file.exists():
+        raise HTTPException(
+            status_code=503,
+            detail=f"YouTube Music auth file was not found at {auth_file}",
+        )
+
+    return YTMusic(str(auth_file))
 
 
 @app.get("/health")
@@ -34,6 +45,7 @@ def health():
 
 @app.get("/albums")
 def get_albums():
+    yt = get_ytmusic()
 
     raw_albums = yt.get_library_albums(limit=1000)
 

@@ -62,3 +62,18 @@ uvicorn backend.main:app --host 0.0.0.0 --port $PORT
 ```
 
 Do not commit `backend/headers_auth.json`. It contains private YouTube Music auth data and should be uploaded to your backend host as a secret file.
+
+On Render, deploy the backend as a Python Web Service:
+
+```txt
+Build Command: pip install -r requirements.txt
+Start Command: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+```
+
+Add `headers_auth.json` as a Render secret file at:
+
+```txt
+/etc/secrets/headers_auth.json
+```
+
+After deploying, open `/health` first. It should load even if the auth file is missing. Then open `/albums` to test YouTube Music access.
