@@ -4,7 +4,6 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from ytmusicapi import YTMusic
 
 
 DEFAULT_AUTH_FILE = Path(__file__).with_name("headers_auth.json")
@@ -27,6 +26,8 @@ app.add_middleware(
 
 @lru_cache
 def get_ytmusic():
+    from ytmusicapi import YTMusic
+
     auth_file = Path(os.getenv("YTMUSIC_AUTH_FILE", str(DEFAULT_AUTH_FILE)))
 
     if not auth_file.exists():
