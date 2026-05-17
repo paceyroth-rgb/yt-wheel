@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Album = {
   title: string;
@@ -10,6 +10,14 @@ type Album = {
 };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+const API_BASE = API_URL.replace(/\/$/, "");
+
+type AuthFlow = {
+  userCode: string;
+  verificationUrl: string;
+  expiresIn: number;
+  interval: number;
+};
 
 export default function Home() {
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -19,38 +27,137 @@ export default function Home() {
   const [colors, setColors] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [authenticated, setAuthenticated] = useState(false);
+  const [authFlow, setAuthFlow] = useState<AuthFlow | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+
+  const loadAlbums = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await fetch(`${API_BASE}/albums`, {
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        throw new Error("Album library could not be loaded.");
+      }
+
+      const data = await response.json();
+      const loadedAlbums = data.albums ?? [];
+
+      setAlbums(loadedAlbums);
+      setColors(
+        loadedAlbums.map((_: Album, index: number) => {
+          const hue = (index * 47 + Math.floor(Math.random() * 28)) % 360;
+          return `hsl(${hue}, 78%, 58%)`;
+        }),
+      );
+    } catch {
+      setAuthenticated(false);
+      setError("Could not reach your album library. Sign in again or check that the API is running.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    async function loadAlbums() {
+    async function checkAuth() {
       try {
         setLoading(true);
         setError("");
 
-        const response = await fetch(`${API_URL}/albums`);
+        const response = await fetch(`${API_BASE}/auth/status`, {
+          credentials: "include",
+        });
 
         if (!response.ok) {
-          throw new Error("Album library could not be loaded.");
+          throw new Error("Login status could not be loaded.");
         }
 
         const data = await response.json();
-        const loadedAlbums = data.albums ?? [];
 
-        setAlbums(loadedAlbums);
-        setColors(
-          loadedAlbums.map((_: Album, index: number) => {
-            const hue = (index * 47 + Math.floor(Math.random() * 28)) % 360;
-            return `hsl(${hue}, 78%, 58%)`;
-          }),
-        );
+        const isAuthenticated = Boolean(data.authenticated);
+
+        setAuthenticated(isAuthenticated);
+
+        if (isAuthenticated) {
+          await loadAlbums();
+        }
       } catch {
-        setError("Could not reach your album library. Check that the API is running.");
+        setError("Could not reach the login service. Check that the API is running.");
       } finally {
         setLoading(false);
       }
     }
 
-    loadAlbums();
-  }, []);
+    checkAuth();
+  }, [loadAlbums]);
+
+  useEffect(() => {
+    if (!authFlow || authenticated) return;
+
+    const pollInterval = window.setInterval(async () => {
+      try {
+        const response = await fetch(`${API_BASE}/auth/poll`, {
+          method: "POST",
+          credentials: "include",
+        });
+
+        if (response.status === 202) return;
+
+        if (!response.ok) {
+          throw new Error("Login was not completed.");
+        }
+
+        setAuthenticated(true);
+        setAuthFlow(null);
+        await loadAlbums();
+      } catch {
+        setError("The login code expired or was not approved. Try signing in again.");
+        setAuthFlow(null);
+      }
+    }, Math.max(authFlow.interval, 5) * 1000);
+
+    return () => window.clearInterval(pollInterval);
+  }, [authFlow, authenticated, loadAlbums]);
+
+  async function startLogin() {
+    try {
+      setAuthLoading(true);
+      setError("");
+
+      const response = await fetch(`${API_BASE}/auth/start`, {
+        method: "POST",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        throw new Error("Login could not be started.");
+      }
+
+      const data = await response.json();
+      setAuthFlow(data);
+      window.open(data.verificationUrl, "_blank", "noopener,noreferrer");
+    } catch {
+      setError("Could not start Google login. Check the OAuth client file and backend logs.");
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function logout() {
+    await fetch(`${API_BASE}/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+    });
+
+    setAuthenticated(false);
+    setAuthFlow(null);
+    setAlbums([]);
+    setSelected(null);
+  }
 
   function spin() {
     if (albums.length === 0 || spinning) return;
@@ -100,9 +207,49 @@ export default function Home() {
         <p className="lede">
           Spin through your saved albums and let the library pick what plays next.
         </p>
+        {authenticated && (
+          <button className="text-button" onClick={logout}>
+            Sign out
+          </button>
+        )}
       </section>
 
-      <section className="wheel-layout" aria-label="Album wheel picker">
+      {!authenticated && (
+        <section className="login-panel" aria-label="YouTube Music login">
+          <div>
+            <p className="result-label">Connect your library</p>
+            <h2>Sign in with Google to build your wheel</h2>
+            <p>
+              The app will show a short code. Approve it with the same Google account
+              you use for YouTube Music.
+            </p>
+          </div>
+
+          {authFlow ? (
+            <div className="login-code">
+              <span>{authFlow.userCode}</span>
+              <a
+                className="album-link"
+                href={authFlow.verificationUrl}
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                Open Google login
+              </a>
+              <p>Waiting for approval...</p>
+            </div>
+          ) : (
+            <button className="spin-button" disabled={loading || authLoading} onClick={startLogin}>
+              {authLoading ? "Starting..." : "Sign in"}
+            </button>
+          )}
+
+          {error && <p className="status-message">{error}</p>}
+        </section>
+      )}
+
+      {authenticated && (
+        <section className="wheel-layout" aria-label="Album wheel picker">
         <div className="wheel-panel">
           <div className="wheel-stage">
             <div className="wheel-pointer" aria-hidden="true" />
@@ -179,6 +326,7 @@ export default function Home() {
           )}
         </aside>
       </section>
+      )}
     </main>
   );
 }

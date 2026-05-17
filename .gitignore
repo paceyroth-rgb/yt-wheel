@@ -41,6 +41,9 @@ yarn-error.log*
 
 # local YouTube Music auth
 backend/headers_auth.json
+backend/oauth_client.json
+backend/oauth.json
+backend/oauth_tokens/
 headers_auth.json
 
 # vercel

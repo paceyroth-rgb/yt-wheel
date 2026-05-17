@@ -52,7 +52,11 @@ For the backend, set these environment variables:
 
 ```txt
 FRONTEND_ORIGINS=https://your-frontend-host.example.com
-YTMUSIC_AUTH_FILE=/etc/secrets/headers_auth.json
+YTMUSIC_OAUTH_CLIENT_FILE=/etc/secrets/oauth_client.json
+YTMUSIC_TOKEN_DIR=/var/data/oauth_tokens
+YTMUSIC_OAUTH_TIMEOUT=15
+SESSION_COOKIE_SECURE=true
+SESSION_COOKIE_SAMESITE=none
 ```
 
 The backend start command is:
@@ -61,7 +65,7 @@ The backend start command is:
 python backend/start.py
 ```
 
-Do not commit `backend/headers_auth.json`. It contains private YouTube Music auth data and should be uploaded to your backend host as a secret file.
+Do not commit `backend/oauth_client.json` or anything in `backend/oauth_tokens/`. These contain private Google OAuth data.
 
 On Render, deploy the backend as a Python Web Service:
 
@@ -71,10 +75,12 @@ Build Command: pip install -r requirements.txt
 Start Command: python backend/start.py
 ```
 
-Add `headers_auth.json` as a Render secret file at:
+Add the Google OAuth client JSON as a Render secret file at:
 
 ```txt
-/etc/secrets/headers_auth.json
+/etc/secrets/oauth_client.json
 ```
+
+The OAuth login uses a browser session cookie. If your frontend and backend are on different domains, keep `SESSION_COOKIE_SECURE=true` and `SESSION_COOKIE_SAMESITE=none` in production.
 
 After deploying, open `/health` first. It should load even if the auth file is missing. Then open `/albums` to test YouTube Music access.
