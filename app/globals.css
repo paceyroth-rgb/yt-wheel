@@ -263,16 +263,25 @@ a {
   gap: 14px;
 }
 
+.login-code-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.login-code-copy .result-label {
+  color: var(--accent-dark);
+}
+
 .login-code span {
   display: inline-flex;
-  min-height: 58px;
-  padding: 0 18px;
+  min-height: 72px;
+  padding: 0 22px;
   border: 2px solid #181818;
   border-radius: 6px;
   align-items: center;
   background: #ffffff;
   font-family: var(--font-geist-mono), monospace;
-  font-size: 1.35rem;
+  font-size: clamp(1.5rem, 5vw, 2.35rem);
   font-weight: 900;
   letter-spacing: 0.12em;
 }

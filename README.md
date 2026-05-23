@@ -55,6 +55,7 @@ FRONTEND_ORIGINS=https://your-frontend-host.example.com
 YTMUSIC_OAUTH_CLIENT_FILE=/etc/secrets/oauth_client.json
 YTMUSIC_TOKEN_DIR=/var/data/oauth_tokens
 YTMUSIC_OAUTH_TIMEOUT=30
+YTMUSIC_AUTH_CODE_GRACE_SECONDS=120
 SESSION_COOKIE_SECURE=true
 SESSION_COOKIE_SAMESITE=none
 ```

@@ -29,6 +29,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
   const [authFlow, setAuthFlow] = useState<AuthFlow | null>(null);
+  const [authStartedAt, setAuthStartedAt] = useState<number | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
 
   const loadAlbums = useCallback(async () => {
@@ -98,7 +99,16 @@ export default function Home() {
   useEffect(() => {
     if (!authFlow || authenticated) return;
 
+    const expiresAt = (authStartedAt ?? Date.now()) + authFlow.expiresIn * 1000;
+
     const pollInterval = window.setInterval(async () => {
+      if (Date.now() >= expiresAt) {
+        setError("The Google login code expired. Start sign in again for a fresh code.");
+        setAuthFlow(null);
+        setAuthStartedAt(null);
+        return;
+      }
+
       try {
         const response = await fetch(`${API_BASE}/auth/poll`, {
           method: "POST",
@@ -108,20 +118,33 @@ export default function Home() {
         if (response.status === 202) return;
 
         if (!response.ok) {
-          throw new Error("Login was not completed.");
+          const data = await response.json().catch(() => null);
+          const detail = String(data?.detail ?? "");
+
+          if (response.status === 400 && detail.toLowerCase().includes("no login")) {
+            return;
+          }
+
+          throw new Error(detail || "Login was not completed.");
         }
 
         setAuthenticated(true);
         setAuthFlow(null);
+        setAuthStartedAt(null);
         await loadAlbums();
-      } catch {
-        setError("The login code expired or was not approved. Try signing in again.");
+      } catch (pollError) {
+        setError(
+          pollError instanceof Error
+            ? `Google login was not completed. ${pollError.message}`
+            : "Google login was not completed. Try signing in again.",
+        );
         setAuthFlow(null);
+        setAuthStartedAt(null);
       }
     }, Math.max(authFlow.interval, 5) * 1000);
 
     return () => window.clearInterval(pollInterval);
-  }, [authFlow, authenticated, loadAlbums]);
+  }, [authFlow, authStartedAt, authenticated, loadAlbums]);
 
   async function startLogin() {
     try {
@@ -140,7 +163,7 @@ export default function Home() {
 
       const data = await response.json();
       setAuthFlow(data);
-      window.open(data.verificationUrl, "_blank", "noopener,noreferrer");
+      setAuthStartedAt(Date.now());
     } catch (loginError) {
       setError(
         loginError instanceof Error
@@ -160,6 +183,7 @@ export default function Home() {
 
     setAuthenticated(false);
     setAuthFlow(null);
+    setAuthStartedAt(null);
     setAlbums([]);
     setSelected(null);
   }
@@ -232,7 +256,10 @@ export default function Home() {
 
           {authFlow ? (
             <div className="login-code">
-              <span>{authFlow.userCode}</span>
+              <div className="login-code-copy">
+                <p className="result-label">Enter this code</p>
+                <span>{authFlow.userCode}</span>
+              </div>
               <a
                 className="album-link"
                 href={authFlow.verificationUrl}
@@ -241,7 +268,9 @@ export default function Home() {
               >
                 Open Google login
               </a>
-              <p>Waiting for approval...</p>
+              <p>
+                Keep this tab open, enter the code on Google&apos;s page, then approve access.
+              </p>
             </div>
           ) : (
             <button className="spin-button" disabled={loading || authLoading} onClick={startLogin}>

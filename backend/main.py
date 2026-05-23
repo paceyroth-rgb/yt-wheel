@@ -51,6 +51,10 @@ def oauth_timeout():
     return float(os.getenv("YTMUSIC_OAUTH_TIMEOUT", "30"))
 
 
+def auth_code_grace_seconds():
+    return int(os.getenv("YTMUSIC_AUTH_CODE_GRACE_SECONDS", "120"))
+
+
 def with_oauth_timeout(callback):
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     future = executor.submit(callback)
@@ -259,7 +263,11 @@ def start_auth(request: Request, response: Response):
             or "Could not start Google OAuth.",
         )
 
-    expires_at = int(time.time()) + int(auth_code.get("expires_in", 1800))
+    expires_at = (
+        int(time.time())
+        + int(auth_code.get("expires_in", 1800))
+        + auth_code_grace_seconds()
+    )
 
     pending_auth_codes[session_id] = {
         "device_code": auth_code["device_code"],
