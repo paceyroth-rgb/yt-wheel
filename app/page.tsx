@@ -11,13 +11,39 @@ type Album = {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 const API_BASE = API_URL.replace(/\/$/, "");
+const SESSION_STORAGE_KEY = "ytwheel_session";
 
 type AuthFlow = {
+  sessionId: string;
   userCode: string;
   verificationUrl: string;
   expiresIn: number;
   interval: number;
 };
+
+function getStoredSessionId() {
+  if (typeof window === "undefined") return "";
+
+  return window.localStorage.getItem(SESSION_STORAGE_KEY) ?? "";
+}
+
+function setStoredSessionId(sessionId: string) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+}
+
+function clearStoredSessionId() {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.removeItem(SESSION_STORAGE_KEY);
+}
+
+function sessionHeaders() {
+  const sessionId = getStoredSessionId();
+
+  return sessionId ? { "X-Ytwheel-Session": sessionId } : undefined;
+}
 
 export default function Home() {
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -39,6 +65,7 @@ export default function Home() {
 
       const response = await fetch(`${API_BASE}/albums`, {
         credentials: "include",
+        headers: sessionHeaders(),
       });
 
       if (!response.ok) {
@@ -71,6 +98,7 @@ export default function Home() {
 
         const response = await fetch(`${API_BASE}/auth/status`, {
           credentials: "include",
+          headers: sessionHeaders(),
         });
 
         if (!response.ok) {
@@ -113,6 +141,7 @@ export default function Home() {
         const response = await fetch(`${API_BASE}/auth/poll`, {
           method: "POST",
           credentials: "include",
+          headers: sessionHeaders(),
         });
 
         if (response.status === 202) return;
@@ -120,10 +149,6 @@ export default function Home() {
         if (!response.ok) {
           const data = await response.json().catch(() => null);
           const detail = String(data?.detail ?? "");
-
-          if (response.status === 400 && detail.toLowerCase().includes("no login")) {
-            return;
-          }
 
           throw new Error(detail || "Login was not completed.");
         }
@@ -154,6 +179,7 @@ export default function Home() {
       const response = await fetch(`${API_BASE}/auth/start`, {
         method: "POST",
         credentials: "include",
+        headers: sessionHeaders(),
       });
 
       if (!response.ok) {
@@ -162,6 +188,7 @@ export default function Home() {
       }
 
       const data = await response.json();
+      setStoredSessionId(data.sessionId);
       setAuthFlow(data);
       setAuthStartedAt(Date.now());
     } catch (loginError) {
@@ -179,8 +206,10 @@ export default function Home() {
     await fetch(`${API_BASE}/auth/logout`, {
       method: "POST",
       credentials: "include",
+      headers: sessionHeaders(),
     });
 
+    clearStoredSessionId();
     setAuthenticated(false);
     setAuthFlow(null);
     setAuthStartedAt(null);

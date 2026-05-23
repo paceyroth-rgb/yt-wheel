@@ -2,6 +2,7 @@ import os
 import concurrent.futures
 import json
 import logging
+import re
 import secrets
 import time
 from functools import lru_cache
@@ -17,6 +18,7 @@ logger = logging.getLogger("yt-wheel")
 DEFAULT_OAUTH_CLIENT_FILE = Path(__file__).with_name("oauth_client.json")
 TOKEN_DIR = Path(os.getenv("YTMUSIC_TOKEN_DIR", Path(__file__).with_name("oauth_tokens")))
 SESSION_COOKIE_NAME = "ytwheel_session"
+SESSION_HEADER_NAME = "x-ytwheel-session"
 GOOGLE_DEVICE_CODE_URL = "https://oauth2.googleapis.com/device/code"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 YOUTUBE_OAUTH_SCOPE = "https://www.googleapis.com/auth/youtube"
@@ -69,8 +71,22 @@ def post_google_oauth(url: str, data: dict):
     return requests.post(url, data=data, timeout=oauth_timeout())
 
 
-def get_session_id(request: Request, response: Response):
-    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+def normalize_session_id(session_id: str | None):
+    if session_id and re.fullmatch(r"[A-Za-z0-9_-]{20,160}", session_id):
+        return session_id
+
+    return None
+
+
+def get_request_session_id(request: Request):
+    return normalize_session_id(
+        request.cookies.get(SESSION_COOKIE_NAME)
+        or request.headers.get(SESSION_HEADER_NAME)
+    )
+
+
+def get_or_create_session_id(request: Request, response: Response):
+    session_id = get_request_session_id(request)
 
     if session_id:
         return session_id
@@ -190,7 +206,7 @@ def get_oauth_credentials():
 def get_user_ytmusic(request: Request):
     from ytmusicapi import YTMusic
 
-    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    session_id = get_request_session_id(request)
 
     if not session_id:
         raise HTTPException(status_code=401, detail="Login required.")
@@ -221,7 +237,7 @@ def auth_debug():
 
 @app.get("/auth/status")
 def auth_status(request: Request):
-    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    session_id = get_request_session_id(request)
     authenticated = bool(session_id and get_token_path(session_id).exists())
 
     return {"authenticated": authenticated}
@@ -229,7 +245,7 @@ def auth_status(request: Request):
 
 @app.post("/auth/start")
 def start_auth(request: Request, response: Response):
-    session_id = get_session_id(request, response)
+    session_id = get_or_create_session_id(request, response)
     client_config = get_oauth_client_config()
 
     try:
@@ -281,6 +297,7 @@ def start_auth(request: Request, response: Response):
     )
 
     return {
+        "sessionId": session_id,
         "userCode": auth_code["user_code"],
         "verificationUrl": verification_url,
         "expiresIn": auth_code.get("expires_in", 1800),
@@ -290,7 +307,7 @@ def start_auth(request: Request, response: Response):
 
 @app.post("/auth/poll")
 def poll_auth(request: Request, response: Response):
-    session_id = get_session_id(request, response)
+    session_id = get_or_create_session_id(request, response)
     pending_auth_code = pending_auth_codes.get(session_id)
     client_config = get_oauth_client_config()
 
@@ -355,7 +372,7 @@ def poll_auth(request: Request, response: Response):
 
 @app.post("/auth/logout")
 def logout(request: Request, response: Response):
-    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    session_id = get_request_session_id(request)
 
     if session_id:
         token_path = get_token_path(session_id)
