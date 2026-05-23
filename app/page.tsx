@@ -134,14 +134,19 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        throw new Error("Login could not be started.");
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.detail ?? "Login could not be started.");
       }
 
       const data = await response.json();
       setAuthFlow(data);
       window.open(data.verificationUrl, "_blank", "noopener,noreferrer");
-    } catch {
-      setError("Could not start Google login. Check the OAuth client file and backend logs.");
+    } catch (loginError) {
+      setError(
+        loginError instanceof Error
+          ? `Could not start Google login. ${loginError.message}`
+          : "Could not start Google login. Check the OAuth client file and backend logs.",
+      );
     } finally {
       setAuthLoading(false);
     }

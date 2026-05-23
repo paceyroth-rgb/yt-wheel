@@ -39,11 +39,12 @@ yarn-error.log*
 !.env*.example
 !backend/.env*.example
 
-# local YouTube Music auth
-backend/headers_auth.json
+# local YouTube Music OAuth files
 backend/oauth_client.json
 backend/oauth.json
 backend/oauth_tokens/
+backend/server-*.log
+backend/headers_auth.json
 headers_auth.json
 
 # vercel

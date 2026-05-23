@@ -1,18 +1,25 @@
 import os
 import concurrent.futures
 import json
+import logging
 import secrets
 import time
 from functools import lru_cache
 from pathlib import Path
 
+import requests
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
 
+logger = logging.getLogger("yt-wheel")
+
 DEFAULT_OAUTH_CLIENT_FILE = Path(__file__).with_name("oauth_client.json")
 TOKEN_DIR = Path(os.getenv("YTMUSIC_TOKEN_DIR", Path(__file__).with_name("oauth_tokens")))
 SESSION_COOKIE_NAME = "ytwheel_session"
+GOOGLE_DEVICE_CODE_URL = "https://oauth2.googleapis.com/device/code"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+YOUTUBE_OAUTH_SCOPE = "https://www.googleapis.com/auth/youtube"
 pending_auth_codes = {}
 
 app = FastAPI()
@@ -41,7 +48,7 @@ def cookie_samesite():
 
 
 def oauth_timeout():
-    return float(os.getenv("YTMUSIC_OAUTH_TIMEOUT", "15"))
+    return float(os.getenv("YTMUSIC_OAUTH_TIMEOUT", "30"))
 
 
 def with_oauth_timeout(callback):
@@ -52,6 +59,10 @@ def with_oauth_timeout(callback):
         return future.result(timeout=oauth_timeout())
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
+
+
+def post_google_oauth(url: str, data: dict):
+    return requests.post(url, data=data, timeout=oauth_timeout())
 
 
 def get_session_id(request: Request, response: Response):
@@ -77,21 +88,57 @@ def get_token_path(session_id: str):
     return TOKEN_DIR / f"{session_id}.json"
 
 
+def get_oauth_client_path():
+    return Path(os.getenv("YTMUSIC_OAUTH_CLIENT_FILE", str(DEFAULT_OAUTH_CLIENT_FILE)))
+
+
+def inspect_oauth_client_file():
+    oauth_client_file = get_oauth_client_path()
+    result = {
+        "envName": "YTMUSIC_OAUTH_CLIENT_FILE",
+        "configuredPath": str(oauth_client_file),
+        "exists": oauth_client_file.exists(),
+        "isFile": oauth_client_file.is_file(),
+        "hasClientId": False,
+        "hasClientSecret": False,
+        "jsonShape": None,
+        "error": None,
+    }
+
+    if not result["exists"] or not result["isFile"]:
+        return result
+
+    try:
+        with oauth_client_file.open("r", encoding="utf-8") as file:
+            oauth_client = json.load(file)
+
+        if "installed" in oauth_client:
+            result["jsonShape"] = "installed"
+            client_config = oauth_client["installed"]
+        elif "web" in oauth_client:
+            result["jsonShape"] = "web"
+            client_config = oauth_client["web"]
+        else:
+            result["jsonShape"] = "root"
+            client_config = oauth_client
+
+        result["hasClientId"] = bool(client_config.get("client_id"))
+        result["hasClientSecret"] = bool(client_config.get("client_secret"))
+    except Exception as error:
+        result["error"] = str(error)
+
+    return result
+
+
 @lru_cache
-def get_oauth_credentials():
-    import requests
-    from ytmusicapi import OAuthCredentials
-
-    class TimeoutSession(requests.Session):
-        def request(self, method, url, **kwargs):
-            kwargs.setdefault("timeout", oauth_timeout())
-            return super().request(method, url, **kwargs)
-
-    oauth_client_file = Path(
-        os.getenv("YTMUSIC_OAUTH_CLIENT_FILE", str(DEFAULT_OAUTH_CLIENT_FILE))
-    )
+def get_oauth_client_config():
+    oauth_client_file = get_oauth_client_path()
 
     if not oauth_client_file.exists():
+        logger.error(
+            "OAuth client file was not found. YTMUSIC_OAUTH_CLIENT_FILE=%s",
+            oauth_client_file,
+        )
         raise HTTPException(
             status_code=503,
             detail=f"OAuth client file was not found at {oauth_client_file}",
@@ -105,14 +152,33 @@ def get_oauth_credentials():
     client_secret = client_config.get("client_secret")
 
     if not client_id or not client_secret:
+        logger.error(
+            "OAuth client file is missing client_id or client_secret. "
+            "YTMUSIC_OAUTH_CLIENT_FILE=%s",
+            oauth_client_file,
+        )
         raise HTTPException(
             status_code=503,
             detail="OAuth client file must include client_id and client_secret.",
         )
 
+    return {"client_id": client_id, "client_secret": client_secret}
+
+
+@lru_cache
+def get_oauth_credentials():
+    from ytmusicapi import OAuthCredentials
+
+    class TimeoutSession(requests.Session):
+        def request(self, method, url, **kwargs):
+            kwargs.setdefault("timeout", oauth_timeout())
+            return super().request(method, url, **kwargs)
+
+    client_config = get_oauth_client_config()
+
     return OAuthCredentials(
-        client_id=client_id,
-        client_secret=client_secret,
+        client_id=client_config["client_id"],
+        client_secret=client_config["client_secret"],
         session=TimeoutSession(),
     )
 
@@ -133,9 +199,20 @@ def get_user_ytmusic(request: Request):
     return YTMusic(str(token_path), oauth_credentials=get_oauth_credentials())
 
 
+@app.on_event("startup")
+def log_oauth_setup():
+    diagnostics = inspect_oauth_client_file()
+    logger.warning("OAuth client diagnostics at startup: %s", diagnostics)
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/auth/debug")
+def auth_debug():
+    return inspect_oauth_client_file()
 
 
 @app.get("/auth/status")
@@ -149,10 +226,18 @@ def auth_status(request: Request):
 @app.post("/auth/start")
 def start_auth(request: Request, response: Response):
     session_id = get_session_id(request, response)
-    credentials = get_oauth_credentials()
+    client_config = get_oauth_client_config()
 
     try:
-        auth_code = with_oauth_timeout(credentials.get_code)
+        google_response = with_oauth_timeout(
+            lambda: post_google_oauth(
+                GOOGLE_DEVICE_CODE_URL,
+                {
+                    "client_id": client_config["client_id"],
+                    "scope": YOUTUBE_OAUTH_SCOPE,
+                },
+            )
+        )
     except concurrent.futures.TimeoutError:
         raise HTTPException(
             status_code=504,
@@ -162,6 +247,16 @@ def start_auth(request: Request, response: Response):
         raise HTTPException(
             status_code=502,
             detail=f"Could not reach Google OAuth: {error}",
+        )
+
+    auth_code = google_response.json()
+
+    if not google_response.ok:
+        raise HTTPException(
+            status_code=502,
+            detail=auth_code.get("error_description")
+            or auth_code.get("error")
+            or "Could not start Google OAuth.",
         )
 
     expires_at = int(time.time()) + int(auth_code.get("expires_in", 1800))
@@ -189,6 +284,7 @@ def start_auth(request: Request, response: Response):
 def poll_auth(request: Request, response: Response):
     session_id = get_session_id(request, response)
     pending_auth_code = pending_auth_codes.get(session_id)
+    client_config = get_oauth_client_config()
 
     if not pending_auth_code:
         raise HTTPException(status_code=400, detail="No login is in progress.")
@@ -198,8 +294,16 @@ def poll_auth(request: Request, response: Response):
         raise HTTPException(status_code=400, detail="Login code expired.")
 
     try:
-        token = with_oauth_timeout(
-            lambda: get_oauth_credentials().token_from_code(pending_auth_code["device_code"])
+        token_response = with_oauth_timeout(
+            lambda: post_google_oauth(
+                GOOGLE_TOKEN_URL,
+                {
+                    "client_id": client_config["client_id"],
+                    "client_secret": client_config["client_secret"],
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                    "device_code": pending_auth_code["device_code"],
+                },
+            )
         )
     except concurrent.futures.TimeoutError:
         raise HTTPException(
@@ -207,19 +311,29 @@ def poll_auth(request: Request, response: Response):
             detail="Google OAuth did not respond before the timeout.",
         )
     except Exception as error:
-        error_message = str(error).lower()
+        raise HTTPException(status_code=502, detail=f"OAuth login failed: {error}")
 
-        if "authorization_pending" in error_message or "not yet" in error_message:
+    token = token_response.json()
+
+    if not token_response.ok:
+        error_message = str(token.get("error", "")).lower()
+
+        if error_message == "authorization_pending":
             return Response(status_code=status.HTTP_202_ACCEPTED)
 
-        if "slow_down" in error_message:
+        if error_message == "slow_down":
             return Response(status_code=status.HTTP_202_ACCEPTED)
 
-        if "expired" in error_message or "denied" in error_message:
+        if error_message in {"expired_token", "access_denied"}:
             pending_auth_codes.pop(session_id, None)
             raise HTTPException(status_code=400, detail="Login was not approved in time.")
 
-        raise HTTPException(status_code=502, detail=f"OAuth login failed: {error}")
+        raise HTTPException(
+            status_code=502,
+            detail=token.get("error_description")
+            or token.get("error")
+            or "OAuth login failed.",
+        )
 
     token["expires_at"] = int(time.time()) + int(token.get("expires_in", 0))
 

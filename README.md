@@ -54,7 +54,7 @@ For the backend, set these environment variables:
 FRONTEND_ORIGINS=https://your-frontend-host.example.com
 YTMUSIC_OAUTH_CLIENT_FILE=/etc/secrets/oauth_client.json
 YTMUSIC_TOKEN_DIR=/var/data/oauth_tokens
-YTMUSIC_OAUTH_TIMEOUT=15
+YTMUSIC_OAUTH_TIMEOUT=30
 SESSION_COOKIE_SECURE=true
 SESSION_COOKIE_SAMESITE=none
 ```
@@ -83,4 +83,4 @@ Add the Google OAuth client JSON as a Render secret file at:
 
 The OAuth login uses a browser session cookie. If your frontend and backend are on different domains, keep `SESSION_COOKIE_SECURE=true` and `SESSION_COOKIE_SAMESITE=none` in production.
 
-After deploying, open `/health` first. It should load even if the auth file is missing. Then open `/albums` to test YouTube Music access.
+After deploying, open `/health` first. It should load even if the OAuth client file is missing. Then open `/auth/debug` to confirm the backend can see the OAuth client file. It returns booleans only, not secret values. Finally, send a `POST` request to `/auth/start` to test Google login setup.
