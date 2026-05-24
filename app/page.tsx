@@ -74,15 +74,7 @@ export default function Home() {
 
       const data = await response.json();
 
-      const loadedAlbums = (data.albums ?? []).map((album: any) => ({
-      title: album.title,
-      artist: album.artists?.[0]?.name ?? "Unknown Artist",
-      browseId: album.browseId,
-      thumbnail:
-      album.thumbnails?.[1]?.url ??
-      album.thumbnails?.[0]?.url ??
-      "",
-      }));
+      const loadedAlbums = data.albums ?? [];
 
 setAlbums(loadedAlbums);
       setColors(
@@ -196,15 +188,7 @@ setAlbums(loadedAlbums);
 
     const data = await response.json();
 
-    const loadedAlbums = (data.albums ?? []).map((album: any) => ({
-    title: album.title,
-    artist: album.artists?.[0]?.name ?? "Unknown Artist",
-    browseId: album.browseId,
-    thumbnail:
-    album.thumbnails?.[1]?.url ??
-    album.thumbnails?.[0]?.url ??
-    "",
-    }));
+    const loadedAlbums = data.albums ?? [];
 
     setAlbums(loadedAlbums);
 
