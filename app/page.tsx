@@ -73,9 +73,18 @@ export default function Home() {
       }
 
       const data = await response.json();
-      const loadedAlbums = data.albums ?? [];
 
-      setAlbums(loadedAlbums);
+      const loadedAlbums = (data.albums ?? []).map((album: any) => ({
+      title: album.title,
+      artist: album.artists?.[0]?.name ?? "Unknown Artist",
+      browseId: album.browseId,
+      thumbnail:
+      album.thumbnails?.[1]?.url ??
+      album.thumbnails?.[0]?.url ??
+      "",
+      }));
+
+setAlbums(loadedAlbums);
       setColors(
         loadedAlbums.map((_: Album, index: number) => {
           const hue = (index * 47 + Math.floor(Math.random() * 28)) % 360;
@@ -187,7 +196,15 @@ export default function Home() {
 
     const data = await response.json();
 
-    const loadedAlbums = data.albums ?? [];
+    const loadedAlbums = (data.albums ?? []).map((album: any) => ({
+    title: album.title,
+    artist: album.artists?.[0]?.name ?? "Unknown Artist",
+    browseId: album.browseId,
+    thumbnail:
+    album.thumbnails?.[1]?.url ??
+    album.thumbnails?.[0]?.url ??
+    "",
+    }));
 
     setAlbums(loadedAlbums);
 

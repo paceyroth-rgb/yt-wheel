@@ -485,7 +485,7 @@ def get_dev_albums():
 
     yt = YTMusic(auth_path)
 
-    raw_albums = yt.get_library_albums(limit=5)
+    raw_albums = yt.get_library_albums(limit=1000)
     
     albums = []
 
@@ -512,4 +512,4 @@ def get_dev_albums():
             "browseId": browse_id
         })
 
-    return {"raw_albums": raw_albums}
+    return {"albums": albums}
