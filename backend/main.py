@@ -365,8 +365,8 @@ def poll_auth(request: Request, response: Response):
                 {
                     "client_id": client_config["client_id"],
                     "client_secret": client_config["client_secret"],
-                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-                    "device_code": pending_auth_code["device_code"],
+                    "grant_type": "http://oauth.net/grant_type/device/1.0",
+                    "code": pending_auth_code["device_code"],
                 },
             )
         )
@@ -443,7 +443,7 @@ def get_albums(request: Request):
         logger.exception("Could not load YouTube Music library")
         raise HTTPException(
             status_code=502,
-            detail=f"Could not load YouTube Music library: {type(error).__name__}",
+            detail=f"Could not load YouTube Music library: {type(error).__name__}: {error}",
         )
 
     albums = []
