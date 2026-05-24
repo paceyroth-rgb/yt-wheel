@@ -108,6 +108,36 @@ def get_token_path(session_id: str):
     return TOKEN_DIR / f"{session_id}.json"
 
 
+def read_token_debug(token_path: Path):
+    result = {
+        "exists": token_path.exists(),
+        "isFile": token_path.is_file(),
+        "hasAccessToken": False,
+        "hasRefreshToken": False,
+        "hasTokenType": False,
+        "hasScope": False,
+        "expiresAt": None,
+        "error": None,
+    }
+
+    if not result["exists"] or not result["isFile"]:
+        return result
+
+    try:
+        with token_path.open("r", encoding="utf-8") as file:
+            token = json.load(file)
+
+        result["hasAccessToken"] = bool(token.get("access_token"))
+        result["hasRefreshToken"] = bool(token.get("refresh_token"))
+        result["hasTokenType"] = bool(token.get("token_type"))
+        result["hasScope"] = bool(token.get("scope"))
+        result["expiresAt"] = token.get("expires_at")
+    except Exception as error:
+        result["error"] = str(error)
+
+    return result
+
+
 def get_oauth_client_path():
     return Path(os.getenv("YTMUSIC_OAUTH_CLIENT_FILE", str(DEFAULT_OAUTH_CLIENT_FILE)))
 
@@ -233,6 +263,16 @@ def health():
 @app.get("/auth/debug")
 def auth_debug():
     return inspect_oauth_client_file()
+
+
+@app.get("/auth/token-debug")
+def token_debug(request: Request):
+    session_id = get_request_session_id(request)
+
+    if not session_id:
+        return {"hasSession": False}
+
+    return {"hasSession": True, **read_token_debug(get_token_path(session_id))}
 
 
 @app.get("/auth/status")
@@ -361,6 +401,8 @@ def poll_auth(request: Request, response: Response):
         )
 
     token["expires_at"] = int(time.time()) + int(token.get("expires_in", 0))
+    token.setdefault("token_type", "Bearer")
+    token.setdefault("scope", YOUTUBE_OAUTH_SCOPE)
 
     with get_token_path(session_id).open("w", encoding="utf-8") as file:
         json.dump(token, file, indent=2)
@@ -391,9 +433,18 @@ def logout(request: Request, response: Response):
 
 @app.get("/albums")
 def get_albums(request: Request):
-    yt = get_user_ytmusic(request)
+    try:
+        yt = get_user_ytmusic(request)
 
-    raw_albums = yt.get_library_albums(limit=1000)
+        raw_albums = yt.get_library_albums(limit=1000)
+    except HTTPException:
+        raise
+    except Exception as error:
+        logger.exception("Could not load YouTube Music library")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not load YouTube Music library: {type(error).__name__}",
+        )
 
     albums = []
 
