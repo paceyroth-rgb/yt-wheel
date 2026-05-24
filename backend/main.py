@@ -475,3 +475,41 @@ def get_albums(request: Request):
         })
 
     return {"albums": albums}
+
+@app.get("/albums/dev")
+def get_dev_albums():
+
+    from ytmusicapi import YTMusic
+
+    auth_path = os.getenv("YTMUSIC_DEV_AUTH")
+
+    yt = YTMusic(auth_path)
+
+    raw_albums = yt.get_library_albums(limit=1000)
+    
+    albums = []
+
+    for album in raw_albums:
+
+        title = album.get("title", "Unknown Album")
+
+        artist = "Unknown Artist"
+
+        if "artists" in album and len(album["artists"]) > 0:
+            artist = album["artists"][0].get("name", "Unknown Artist")
+
+        thumbnail = ""
+
+        if "thumbnails" in album and len(album["thumbnails"]) > 0:
+            thumnail = album["thumbnails"][-1].get("url", "")
+
+        browse_id = album.get("browseId", "")
+
+        albums.append({
+            "title": title,
+            "artist": artist,
+            "thumbnail": thumbnail,
+            "browseId": browse_id
+        })
+
+    return {"albums": albums}

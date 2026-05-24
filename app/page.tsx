@@ -171,6 +171,46 @@ export default function Home() {
     return () => window.clearInterval(pollInterval);
   }, [authFlow, authStartedAt, authenticated, loadAlbums]);
 
+  async function loadDevLibrary() {
+
+  try {
+
+    setLoading(true);
+
+    setError("");
+
+    const response = await fetch(`${API_BASE}/albums/dev`);
+
+    if (!response.ok) {
+      throw new Error("Developer library could not be loaded.");
+    }
+
+    const data = await response.json();
+
+    const loadedAlbums = data.albums ?? [];
+
+    setAlbums(loadedAlbums);
+
+    setColors(
+      loadedAlbums.map((_: Album, index: number) => {
+        const hue = (index * 47 + Math.floor(Math.random() * 28)) % 360;
+        return `hsl(${hue}, 78%, 58%)`;
+      }),
+    );
+
+    setAuthenticated(true);
+
+  } catch {
+
+    setError("Could not load developer library.");
+
+  } finally {
+
+    setLoading(false);
+
+  }
+}
+
   async function startLogin() {
     try {
       setAuthLoading(true);
@@ -282,7 +322,14 @@ export default function Home() {
               you use for YouTube Music.
             </p>
           </div>
-
+          <button
+            className="spin-button"
+            disabled={loading}
+            onClick={loadDevLibrary}
+            style={{ marginBottom: "16px" }}
+          >
+            Load Developer Library
+          </button>
           {authFlow ? (
             <div className="login-code">
               <div className="login-code-copy">
